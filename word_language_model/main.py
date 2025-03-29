@@ -6,6 +6,7 @@ import os
 import torch
 import torch.nn as nn
 import torch.onnx
+import csv
 
 import data
 import model
@@ -51,7 +52,14 @@ parser.add_argument('--nhead', type=int, default=2,
                     help='the number of heads in the encoder/decoder of the transformer model')
 parser.add_argument('--dry-run', action='store_true',
                     help='verify the code and the model')
+
+# new logging arguments
+parser.add_argument('--log-valid', type=str, default='', help='path to save validation perplexities per epoch (TSV format)')
+parser.add_argument('--log-test', type=str, default='', help='path to save final test perplexity (TSV format)')
+parser.add_argument('--log-epoch', type=str, default='', help='path to save final epoch perplexity (TSV format)')
+
 args = parser.parse_args()
+
 
 # Set the random seed manually for reproducibility.
 torch.manual_seed(args.seed)
@@ -200,6 +208,11 @@ def train():
                     'loss {:5.2f} | ppl {:8.2f}'.format(
                 epoch, batch, len(train_data) // args.bptt, lr,
                 elapsed * 1000 / args.log_interval, cur_loss, math.exp(cur_loss)))
+            # Write to log file
+            if args.log_epoch:
+                with open(args.log_epoch, 'a') as f:
+                    writer = csv.writer(f, delimiter='\t')
+                    writer.writerow([epoch, args.dropout, math.exp(cur_loss)])
             total_loss = 0
             start_time = time.time()
         if args.dry_run:
@@ -213,6 +226,17 @@ def export_onnx(path, batch_size, seq_len):
     hidden = model.init_hidden(batch_size)
     torch.onnx.export(model, (dummy_input, hidden), path)
 
+# Write header to epoch log file
+if args.log_epoch:
+    with open(args.log_epoch, 'a') as f:
+        writer = csv.writer(f, delimiter='\t')
+        writer.writerow(["epoch", "dropout", "ppl"])
+
+# Write headers for valid log file and end of traning log file
+if args.log_test:
+    with open(args.log_test, 'a') as f:
+        writer = csv.writer(f, delimiter='\t')
+        writer.writerow(["dropout", "ppl"])
 
 # Loop over epochs.
 lr = args.lr
@@ -256,6 +280,12 @@ print('=' * 89)
 print('| End of training | test loss {:5.2f} | test ppl {:8.2f}'.format(
     test_loss, math.exp(test_loss)))
 print('=' * 89)
+
+# Write to log file
+if args.log_test:
+    with open(args.log_test, 'a') as f:
+        writer = csv.writer(f, delimiter='\t')
+        writer.writerow([args.dropout, math.exp(test_loss)])
 
 if len(args.onnx_export) > 0:
     # Export the model in ONNX format.
